@@ -1,0 +1,15 @@
+# OS / editor clutter
+Thumbs.db
+.DS_Store
+desktop.ini
+.vscode/
+
+# Local test tooling
+node_modules/
+_test/
+
+# clasp login tokens must never be committed (they live in your user folder anyway)
+.clasprc.json
+
+# Original, uncompressed photos (keep only the optimised copies)
+assets/photos/originals/

@@ -1,0 +1,105 @@
+# Raghav & Abhilasha · Wedding RSVP site
+
+Live site: https://raghav-abhilasha.github.io
+
+A single-page site (plain HTML, CSS and JavaScript, no build step) with an
+RSVP form that saves each reply as a row in a Google Sheet, through a
+Google Apps Script web app.
+
+```
+index.html              page structure + link-preview <meta> tags
+assets/js/config.js     ALL editable text: names, dates, events, venue, FAQ, contacts, RSVP URL
+assets/js/main.js       fills the page from config.js, scroll animations
+assets/js/rsvp.js       RSVP form logic (conditional questions, validation, sending)
+assets/css/style.css    look and feel; colours and fonts at the top (:root)
+assets/img/             invitation artwork, share image, favicons
+assets/photos/          your photos (see assets/photos/README.md)
+apps-script/            the Google Apps Script backend (Code.js, appsscript.json)
+tools/optimize_photos.py  shrinks photos before you upload them
+```
+
+## Edit the content
+
+1. Open `assets/js/config.js` and change the text. Placeholders look like
+   `[RSVP DEADLINE]`.
+2. To add Mehendi, Sangeet etc., copy an entry in `events`. Each event shows
+   in the schedule and as a checkbox in the form.
+3. Colours and fonts: the `:root` block at the top of `assets/css/style.css`.
+4. Photos: see `assets/photos/README.md`.
+5. The WhatsApp link preview comes from the `<meta>` tags at the top of
+   `index.html`, not from `config.js`. Edit them there. WhatsApp caches
+   previews, so changes can take a while to show for links already shared.
+
+Preview on your computer:
+
+```
+python -m http.server 8000
+```
+
+then open http://localhost:8000.
+
+Publish changes:
+
+```
+git add -A
+git commit -m "Update wedding details"
+git push
+```
+
+GitHub Pages updates the live site within a minute or two.
+
+## The Google Sheet and backend
+
+- Sheet: https://docs.google.com/spreadsheets/d/1gKdW3OKwqDnPITQfV2rSFv68_FbSI-wwunEvelbCqyk/edit
+  - First tab: one row per RSVP. Don't rename, reorder or insert columns.
+  - **Summary** tab: totals, headcount, and counts per function, night of stay and food preference. It's all formulas, so it updates by itself.
+- Script: open the sheet, then **Extensions > Apps Script**, or
+  https://script.google.com/d/1KMl0z6Sm9RDa8caR8dx8PxzRKvrpC_CfUEDZaqLwItxSikcbwwSkBEzU/edit
+- Web app URL (already in `config.js` as `RSVP_ENDPOINT`):
+  https://script.google.com/macros/s/AKfycbykznCgPCWNwBd8xhvhr5hz3EVRMPkIGV5XkYUlh40tZaWEtNBkl7Xk_4n20puRG9zwqQ/exec
+  Opening it in a browser should show `"RSVP endpoint is live"`.
+- Every new RSVP emails the script owner. To send them to another address,
+  add a Script Property `NOTIFY_EMAIL` in the script's **Project Settings**.
+  Gmail accounts can send about 100 such emails a day.
+
+### Change and redeploy the Apps Script
+
+Edit `apps-script/Code.js`, then from the `apps-script` folder:
+
+```
+clasp push
+clasp deploy -i AKfycbykznCgPCWNwBd8xhvhr5hz3EVRMPkIGV5XkYUlh40tZaWEtNBkl7Xk_4n20puRG9zwqQ -d "what changed"
+```
+
+Using `-i` with the same deployment ID keeps the same `/exec` URL, so the
+website needs no change. (A plain `clasp deploy` would create a new URL.)
+
+If you add a new kind of permission to the code (for example, reading
+another file), open the script editor, run `setup` once and click **Allow**
+again. Until then, the web app returns an error.
+
+## Export the guest list
+
+- **Download:** in the sheet, **File > Download > Microsoft Excel (.xlsx)** or
+  **Comma-separated values (.csv)** (the CSV covers the current tab only).
+- **Only people coming:** select the header row, **Data > Create a filter**,
+  then filter the *Attending* column to `Yes`.
+- **Caterer or hotel lists:** use the filter on *Food preference* or
+  *Nights of stay*, or copy the matching rows into a new tab.
+- If someone submits twice, keep the latest row and delete the older one.
+  The Summary tab counts every row.
+
+## Add a custom domain later
+
+1. Buy a domain from any registrar (e.g. GoDaddy, Namecheap, Hostinger).
+2. In GitHub: repo **Settings > Pages > Custom domain**, enter it (e.g.
+   `www.raghavabhilasha.com`) and save. GitHub adds a `CNAME` file to the repo.
+3. At your domain provider, add DNS records:
+   - for `www`: a `CNAME` record pointing to `raghav-abhilasha.github.io`
+   - for the bare domain: `A` records to `185.199.108.153`, `185.199.109.153`,
+     `185.199.110.153`, `185.199.111.153`
+4. Wait for DNS (minutes to a few hours), then tick **Enforce HTTPS** in
+   **Settings > Pages**.
+5. Update the `og:url` and `og:image` / `twitter:image` URLs in `index.html` to
+   the new domain, then commit and push.
+6. Run `git pull` locally so you have the `CNAME` file GitHub created.
