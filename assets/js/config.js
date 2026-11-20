@@ -57,7 +57,6 @@ const WEDDING = {
     icon: "🧣",
     points: [
       "December evenings in Delhi are cold, often below 10 °C. Bring a warm layer.",
-      "Winter fog can delay early-morning flights and trains, so keep some buffer in your plans.",
     ],
   },
 
