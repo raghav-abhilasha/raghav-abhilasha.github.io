@@ -2,11 +2,14 @@
  * Wedding RSVP backend.
  *
  * This script is bound to the "responses from RSVP" Google Sheet.
- * - doPost(e): receives an RSVP from the website and adds one row.
+ * Layout of the responses (first) tab: column A holds the labels, and
+ * each RSVP is one column, B, C, D ..., so entries read left to right.
+ *
+ * - doPost(e): receives an RSVP from the website and adds one column.
  * - doGet(e):  returns "RSVP endpoint is live" so you can test the URL.
- * - setup():   run ONCE from the Apps Script editor. Creates the header
- *              row (only if the first tab is empty), the Summary tab,
- *              and authorises the script.
+ * - setup():   run from the Apps Script editor. Creates the label column
+ *              (only if the first tab is empty), turns an old row-style
+ *              tab into the column layout, and (re)builds the Summary tab.
  *
  * New-response emails go to the script owner. To send them somewhere
  * else, add a Script Property NOTIFY_EMAIL (Project Settings > Script
@@ -14,13 +17,15 @@
  */
 
 var SUMMARY_SHEET_NAME = 'Summary';
+var SUMMARY_TITLE = 'RSVP summary';
 var MAX_FIELD_LENGTH = 1000;
 var MAX_GUESTS = 20;
+var TIMESTAMP_FORMAT = 'dd mmm yyyy, h:mm am/pm';
 
 /**
- * Columns of the responses tab, in order: [JSON key sent by the site, header].
- * Changing this after responses exist will misalign old rows, so add new
- * columns only at the end.
+ * Fields of the responses tab, top to bottom: [JSON key sent by the site, label].
+ * Changing the order after responses exist will misalign old entries, so
+ * add new fields only at the end (new rows at the bottom).
  */
 var COLUMNS = [
   ['timestamp', 'Timestamp'],
@@ -56,7 +61,7 @@ var NUMBER_KEYS = { guestCount: true, nightsCount: true, rooms: true };
 function doGet() {
   var ready = false;
   try {
-    ready = headerMatches_(getResponsesSheet_());
+    ready = labelsMatch_(getResponsesSheet_());
   } catch (err) {
     console.error('doGet check failed: ' + err);
   }
@@ -74,10 +79,11 @@ function doPost(e) {
   // Honeypot: real guests never see the "website" field. Pretend success.
   if (data.website) return json_({ ok: true });
 
-  var record = clean_(data);
-  if (!record.fullName || !record.phone || (record.attending !== 'Yes' && record.attending !== 'No')) {
+  var attending = plain_(data.attending);
+  if (!plain_(data.fullName) || !plain_(data.phone) || (attending !== 'Yes' && attending !== 'No')) {
     return json_({ ok: false, error: 'Name, phone and attending are required' });
   }
+  var record = clean_(data);
 
   var lock = LockService.getScriptLock();
   try {
@@ -86,40 +92,53 @@ function doPost(e) {
     return json_({ ok: false, error: 'Busy, please try again' });
   }
 
-  var rowNumber;
+  var column;
   try {
     var sheet = getResponsesSheet_();
-    // Safety net if setup() was never run: only writes into an EMPTY tab.
-    if (sheet.getLastRow() === 0 && sheet.getLastColumn() === 0) writeHeader_(sheet);
+    if (isEmpty_(sheet)) {
+      writeLabels_(sheet); // safety net if setup() was never run
+    } else if (oldRowLayout_(sheet)) {
+      convertToColumns_(sheet); // tab still in the old row layout
+      rebuildSummary_(SpreadsheetApp.getActiveSpreadsheet(), sheet);
+    }
     record.timestamp = new Date();
-    sheet.appendRow(COLUMNS.map(function (c) { return record[c[0]]; }));
+    column = Math.max(sheet.getLastColumn(), 1) + 1;
+    ensureColumns_(sheet, column);
+    var range = sheet.getRange(1, column, COLUMNS.length, 1);
+    range.setValues(COLUMNS.map(function (c) { return [record[c[0]]]; }));
+    range.setWrap(true).setVerticalAlignment('top');
+    sheet.getRange(1, column).setNumberFormat(TIMESTAMP_FORMAT);
+    sheet.setColumnWidth(column, 210);
     SpreadsheetApp.flush();
-    rowNumber = sheet.getLastRow();
   } finally {
     lock.releaseLock();
   }
 
-  notify_(record, rowNumber);
-  return json_({ ok: true, row: rowNumber });
+  notify_(record, colLetter_(column));
+  return json_({ ok: true, column: colLetter_(column) });
 }
 
 // ---------------------------------------------------------------------
-// One-time setup (run from the editor: select "setup", press Run)
+// Setup (run from the editor: select "setup", press Run)
 // ---------------------------------------------------------------------
 
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var props = PropertiesService.getScriptProperties();
-  var sheet = ss.getSheets()[0];
+  var sheet = getResponsesSheet_();
   var messages = [];
 
-  if (sheet.getLastRow() === 0 && sheet.getLastColumn() === 0) {
-    writeHeader_(sheet);
-    messages.push('Header row created on tab "' + sheet.getName() + '".');
-  } else if (headerMatches_(sheet)) {
-    messages.push('Header row already in place on tab "' + sheet.getName() + '". Nothing changed there.');
+  if (isEmpty_(sheet)) {
+    writeLabels_(sheet);
+    messages.push('Label column created on tab "' + sheet.getName() + '".');
+  } else if (labelsMatch_(sheet)) {
+    messages.push('Tab "' + sheet.getName() + '" is already in the column layout. Nothing changed there.');
+  } else if (oldRowLayout_(sheet)) {
+    var moved = convertToColumns_(sheet);
+    messages.push('Tab "' + sheet.getName() + '" turned sideways: labels in column A, ' + moved +
+      ' existing entr' + (moved === 1 ? 'y' : 'ies') + ' now in columns B onwards.');
   } else {
-    var stop = 'STOPPED: the first tab "' + sheet.getName() + '" already has content that is not the RSVP header. ' +
+    var stop = 'STOPPED: the first tab "' + sheet.getName() + '" has content that is not the RSVP layout. ' +
       'Nothing was changed. Clear that tab or move it, then run setup again.';
     props.setProperty('SETUP_STATUS', 'conflict');
     console.log(stop);
@@ -134,13 +153,7 @@ function setup() {
     messages.push('Spreadsheet time zone set to Asia/Kolkata.');
   }
 
-  if (ss.getSheetByName(SUMMARY_SHEET_NAME)) {
-    messages.push('A "' + SUMMARY_SHEET_NAME + '" tab already exists. Left as is.');
-  } else {
-    buildSummary_(ss, sheet);
-    messages.push('"' + SUMMARY_SHEET_NAME + '" tab created.');
-  }
-
+  messages.push(rebuildSummary_(ss, sheet));
   messages.push('New-response emails will go to: ' + notifyEmail_());
   var out = messages.join('\n');
   console.log(out);
@@ -148,7 +161,7 @@ function setup() {
 }
 
 // ---------------------------------------------------------------------
-// Helpers
+// Layout helpers
 // ---------------------------------------------------------------------
 
 function getResponsesSheet_() {
@@ -163,18 +176,90 @@ function getResponsesSheet_() {
   return ss.getSheets()[0];
 }
 
-function writeHeader_(sheet) {
-  var headers = COLUMNS.map(function (c) { return c[1]; });
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#f4ead9');
-  sheet.setFrozenRows(1);
-  if (sheet.getMaxRows() > 1) sheet.getRange(2, 1, sheet.getMaxRows() - 1, 1).setNumberFormat('dd mmm yyyy, h:mm am/pm');
+function isEmpty_(sheet) {
+  return sheet.getLastRow() === 0 && sheet.getLastColumn() === 0;
 }
 
-function headerMatches_(sheet) {
-  if (sheet.getLastRow() < 1 || sheet.getLastColumn() < COLUMNS.length) return false;
+function labels_() {
+  return COLUMNS.map(function (c) { return c[1]; });
+}
+
+/** Column A holds the labels (current layout). */
+function labelsMatch_(sheet) {
+  if (sheet.getLastRow() < COLUMNS.length) return false;
+  var col = sheet.getRange(1, 1, COLUMNS.length, 1).getValues();
+  return COLUMNS.every(function (c, i) { return col[i][0] === c[1]; });
+}
+
+/** Row 1 holds the labels (the first, row-per-RSVP layout). */
+function oldRowLayout_(sheet) {
+  if (sheet.getLastColumn() < COLUMNS.length) return false;
   var row = sheet.getRange(1, 1, 1, COLUMNS.length).getValues()[0];
   return COLUMNS.every(function (c, i) { return row[i] === c[1]; });
 }
+
+function ensureColumns_(sheet, needed) {
+  var max = sheet.getMaxColumns();
+  if (needed > max) sheet.insertColumnsAfter(max, needed - max + 20);
+}
+
+function styleLabels_(sheet) {
+  sheet.getRange(1, 1, COLUMNS.length, 1).setFontWeight('bold').setBackground('#f4ead9').setVerticalAlignment('top');
+  sheet.setFrozenRows(0);
+  sheet.setFrozenColumns(1);
+  sheet.setColumnWidth(1, 240);
+}
+
+function writeLabels_(sheet) {
+  sheet.getRange(1, 1, COLUMNS.length, 1).setValues(labels_().map(function (l) { return [l]; }));
+  styleLabels_(sheet);
+}
+
+/**
+ * Turns the old layout (labels in row 1, one RSVP per row) sideways.
+ * Every value is kept; only its position changes. Returns the number of
+ * entries moved.
+ */
+function convertToColumns_(sheet) {
+  var values = sheet.getDataRange().getValues(); // [row][col]
+  var width = Math.max(COLUMNS.length, values[0].length);
+  var entries = values.slice(1);
+  // Re-apply the same text protection new entries get (see clean_).
+  var cleaned = entries.map(function (row) {
+    var rec = {};
+    COLUMNS.forEach(function (c, i) { rec[c[0]] = row[i]; });
+    var out = clean_(rec);
+    out.timestamp = row[0];
+    var cells = COLUMNS.map(function (c) { return out[c[0]]; });
+    for (var j = COLUMNS.length; j < width; j++) cells.push(row[j] === undefined ? '' : row[j]); // extra columns kept too
+    return cells;
+  });
+  var labels = labels_();
+  for (var k = COLUMNS.length; k < width; k++) labels.push(values[0][k]);
+
+  sheet.clear();
+  sheet.setFrozenRows(0);
+  ensureColumns_(sheet, cleaned.length + 1);
+  if (sheet.getMaxRows() < width) sheet.insertRowsAfter(sheet.getMaxRows(), width - sheet.getMaxRows());
+
+  // grid[r][c]: r = field, c = 0 for labels, 1.. for entries
+  var grid = labels.map(function (label, r) {
+    return [label].concat(cleaned.map(function (cells) { return cells[r]; }));
+  });
+  sheet.getRange(1, 1, width, grid[0].length).setValues(grid);
+  styleLabels_(sheet);
+  if (cleaned.length) {
+    sheet.getRange(1, 2, width, cleaned.length).setWrap(true).setVerticalAlignment('top');
+    sheet.getRange(1, 2, 1, cleaned.length).setNumberFormat(TIMESTAMP_FORMAT);
+    sheet.setColumnWidths(2, cleaned.length, 210);
+  }
+  SpreadsheetApp.flush();
+  return cleaned.length;
+}
+
+// ---------------------------------------------------------------------
+// Data helpers
+// ---------------------------------------------------------------------
 
 /** Trim, cap length, and stop text being read as a formula. */
 function clean_(data) {
@@ -188,13 +273,22 @@ function clean_(data) {
       out[key] = isNaN(n) ? '' : Math.max(0, Math.min(MAX_GUESTS, n));
       return;
     }
+    if (Object.prototype.toString.call(v) === '[object Date]') { // only when converting old cells
+      v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'EEE d MMM yyyy, HH:mm');
+    }
     v = v == null ? '' : String(v).trim().slice(0, MAX_FIELD_LENGTH);
-    // A leading apostrophe makes Sheets store the value as plain text:
-    // phone numbers keep their format, and "=..." can't run as a formula.
-    if (v && (key === 'phone' || /^[=+\-@]/.test(v))) v = "'" + v;
+    // A leading apostrophe makes Sheets keep the value exactly as typed:
+    // phone numbers and "Thu 10 Dec 2026, 19:00" are not turned into
+    // numbers or dates, and "=..." can't run as a formula. It isn't shown.
+    if (v) v = "'" + v;
     out[key] = v;
   });
   return out;
+}
+
+/** Value as the person typed it: no surrounding spaces, no text-marker apostrophe. */
+function plain_(v) {
+  return v == null ? '' : String(v).trim().replace(/^'/, '');
 }
 
 function notifyEmail_() {
@@ -202,25 +296,25 @@ function notifyEmail_() {
 }
 
 /** Email the owner a summary of the new RSVP. Never blocks saving. */
-function notify_(record, rowNumber) {
+function notify_(record, columnLetter) {
   try {
     var to = notifyEmail_();
     if (!to) return;
-    var name = String(record.fullName).replace(/^'/, '');
-    var subject = record.attending === 'Yes'
+    var name = plain_(record.fullName);
+    var subject = plain_(record.attending) === 'Yes'
       ? 'RSVP: ' + name + ' is coming (' + record.guestCount + ' guest' + (record.guestCount === 1 ? '' : 's') + ')'
       : 'RSVP: ' + name + ' can\'t make it';
     var lines = COLUMNS.filter(function (c) {
       var v = record[c[0]];
       return c[0] !== 'timestamp' && v !== '' && v !== null && v !== undefined;
     }).map(function (c) {
-      return c[1] + ': ' + String(record[c[0]]).replace(/^'/, '');
+      return c[1] + ': ' + plain_(record[c[0]]);
     });
     var url = SpreadsheetApp.getActiveSpreadsheet().getUrl();
     MailApp.sendEmail({
       to: to,
       subject: subject,
-      body: lines.join('\n') + '\n\nSaved in row ' + rowNumber + ' of the sheet:\n' + url,
+      body: lines.join('\n') + '\n\nSaved in column ' + columnLetter + ' of the sheet:\n' + url,
       name: 'Wedding RSVP',
     });
   } catch (err) {
@@ -242,40 +336,53 @@ function colLetter_(index) { // 1-based
   return s;
 }
 
-/** Summary tab: formulas only, so it updates by itself. */
-function buildSummary_(ss, responses) {
-  var sum = ss.insertSheet(SUMMARY_SHEET_NAME, ss.getSheets().length);
-  var tab = "'" + responses.getName().replace(/'/g, "''") + "'!";
-  function col(key) {
-    for (var i = 0; i < COLUMNS.length; i++) if (COLUMNS[i][0] === key) {
-      var L = colLetter_(i + 1);
-      return tab + L + '2:' + L;
-    }
-    throw new Error('Unknown column ' + key);
-  }
-  var name = col('fullName'), att = col('attending'), guests = col('guestCount');
-  var fn = col('functions'), nights = col('stayNights'), rooms = col('rooms');
-  var acc = col('accommodation'), pick = col('pickupDrop'), food = col('food');
+// ---------------------------------------------------------------------
+// Summary tab (formulas only, so it updates by itself)
+// ---------------------------------------------------------------------
 
-  sum.getRange('A1').setValue('RSVP summary').setFontSize(14).setFontWeight('bold');
+/** Creates the Summary tab, or rewrites it if it is the one this script made. */
+function rebuildSummary_(ss, responses) {
+  var sum = ss.getSheetByName(SUMMARY_SHEET_NAME);
+  if (!sum) {
+    sum = ss.insertSheet(SUMMARY_SHEET_NAME, ss.getSheets().length);
+  } else if (sum.getRange('A1').getValue() !== SUMMARY_TITLE) {
+    return 'A "' + SUMMARY_SHEET_NAME + '" tab exists that this script did not make. Left as is.';
+  } else {
+    sum.clear();
+  }
+  buildSummary_(sum, responses);
+  return '"' + SUMMARY_SHEET_NAME + '" tab built for the column layout.';
+}
+
+function buildSummary_(sum, responses) {
+  var tab = "'" + responses.getName().replace(/'/g, "''") + "'!";
+  function row(key) { // the field's row, from column B to the right
+    for (var i = 0; i < COLUMNS.length; i++) if (COLUMNS[i][0] === key) return tab + 'B' + (i + 1) + ':' + (i + 1);
+    throw new Error('Unknown field ' + key);
+  }
+  var name = row('fullName'), att = row('attending'), guests = row('guestCount');
+  var fn = row('functions'), nights = row('stayNights'), rooms = row('rooms');
+  var acc = row('accommodation'), pick = row('pickupDrop'), food = row('food');
+
+  sum.getRange('A1').setValue(SUMMARY_TITLE).setFontSize(14).setFontWeight('bold');
   sum.getRange('A2').setValue('Updates automatically from the "' + responses.getName() + '" tab. Do not type in the grey cells.');
 
-  var rows = [
+  var lines = [
     ['Total responses', '=COUNTA(' + name + ')'],
     ['Attending (responses)', '=COUNTIF(' + att + ',"Yes")'],
     ['Not attending (responses)', '=COUNTIF(' + att + ',"No")'],
     ['Total headcount (attending guests)', '=SUMIF(' + att + ',"Yes",' + guests + ')'],
     ['Need a room (responses)', '=COUNTIFS(' + att + ',"Yes",' + acc + ',"Yes")'],
     ['Rooms requested (where given)', '=SUMIFS(' + rooms + ',' + att + ',"Yes",' + acc + ',"Yes")'],
-    ['Need pickup and/or drop (responses)', '=COUNTIFS(' + att + ',"Yes",' + pick + ',"<>No",' + pick + ',"<>")'],
+    ['Need pickup and/or drop (responses)', '=COUNTIFS(' + att + ',"Yes",' + pick + ',"<>No*",' + pick + ',"<>")'],
   ];
-  sum.getRange(4, 1, rows.length, 1).setValues(rows.map(function (r) { return [r[0]]; }));
-  sum.getRange(4, 2, rows.length, 1).setFormulas(rows.map(function (r) { return [r[1]]; }));
-  sum.getRange(4, 2, rows.length, 1).setBackground('#eeeeee').setFontWeight('bold');
+  sum.getRange(4, 1, lines.length, 1).setValues(lines.map(function (r) { return [r[0]]; }));
+  sum.getRange(4, 2, lines.length, 1).setFormulas(lines.map(function (r) { return [r[1]]; }));
+  sum.getRange(4, 2, lines.length, 1).setBackground('#eeeeee').setFontWeight('bold');
 
   // Breakdown tables, side by side so their lengths can grow freely.
-  var start = 4 + rows.length + 2; // header row of the tables
-  function splitList(range) { // unique items from cells like "Wedding, Reception"
+  var start = 4 + lines.length + 2; // header row of the tables
+  function splitList(range) { // unique items from cells like "Thu 10 Dec, Fri 11 Dec"
     return '=IFERROR(UNIQUE(TRANSPOSE(SPLIT(TEXTJOIN(", ",TRUE,' + range + '),", ",FALSE))),"")';
   }
   function table(colIdx, title, listFormula, countFormula, guestFormula, extraTitle, extraFormula) {
@@ -301,7 +408,7 @@ function buildSummary_(ss, responses) {
     'Rooms (where given)',
     function (r) { return 'SUMIF(' + nights + ',"*"&' + r + '&"*",' + rooms + ')'; });
 
-  table(10, 'Food preference', '=IFERROR(UNIQUE(FILTER(' + food + ',' + food + '<>"")),"")',
+  table(10, 'Food preference', '=IFERROR(TRANSPOSE(UNIQUE(FILTER(' + food + ',' + food + '<>""),TRUE)),"")',
     function (r) { return 'COUNTIF(' + food + ',' + r + ')'; },
     function (r) { return 'SUMIF(' + food + ',' + r + ',' + guests + ')'; });
 
