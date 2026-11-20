@@ -10,6 +10,3 @@ _test/
 
 # clasp login tokens must never be committed (they live in your user folder anyway)
 .clasprc.json
-
-# Original, uncompressed photos (keep only the optimised copies)
-assets/photos/originals/

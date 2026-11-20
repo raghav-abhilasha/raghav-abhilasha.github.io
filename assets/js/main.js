@@ -21,21 +21,15 @@
     return node;
   }
 
-  /** "98106 73728 or 91680 81609" with tap-to-call links. */
-  function phoneLinks(container, joiner) {
+  /** Phone numbers as tap-to-call links, joined with " or ". */
+  function phoneLinks(container) {
     container.textContent = "";
     WEDDING.contact.phones.forEach(function (p, i) {
-      if (i > 0) container.appendChild(document.createTextNode(joiner || " or "));
+      if (i > 0) container.appendChild(document.createTextNode(" or "));
       var a = el("a", null, p.display);
       a.href = "tel:" + p.tel;
       container.appendChild(a);
     });
-  }
-
-  /** Replace {deadline} and {phones} tokens used in FAQ answers. */
-  function fillTokens(text) {
-    var phones = WEDDING.contact.phones.map(function (p) { return p.display; }).join(" or ");
-    return text.replace("{deadline}", WEDDING.rsvp.deadline).replace("{phones}", phones);
   }
 
   // 1. Simple text bindings: <span data-text="couple.first">
@@ -48,30 +42,7 @@
   var shloka = document.getElementById("shloka");
   WEDDING.blessing.forEach(function (line) { shloka.appendChild(el("span", null, line)); });
 
-  // 3. Story paragraphs and photos (placeholder frame until the photo exists)
-  var storyText = document.getElementById("story-text");
-  WEDDING.story.paragraphs.forEach(function (t) { storyText.appendChild(el("p", null, t)); });
-
-  var grid = document.getElementById("photo-grid");
-  WEDDING.story.photos.forEach(function (photo) {
-    var frame = el("figure", "photo");
-    frame.style.margin = "0";
-    var img = el("img");
-    img.src = photo.src;
-    img.alt = photo.alt;
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.width = 600;
-    img.height = 800;
-    img.addEventListener("error", function () {
-      frame.textContent = "";
-      frame.appendChild(el("div", "photo-placeholder", "Photo coming soon"));
-    });
-    frame.appendChild(img);
-    grid.appendChild(frame);
-  });
-
-  // 4. Events
+  // 3. Events
   var eventList = document.getElementById("event-list");
   WEDDING.events.forEach(function (ev) {
     var card = el("article", "event-card reveal");
@@ -85,38 +56,25 @@
     eventList.appendChild(card);
   });
 
-  // 5. Venue links
+  // 4. Venue map link
   document.getElementById("maps-link").href = WEDDING.venue.mapsUrl;
-  document.getElementById("directions-link").href = WEDDING.venue.directionsUrl;
 
-  // 6. Travel cards
-  var travelGrid = document.getElementById("travel-grid");
-  WEDDING.travel.forEach(function (block) {
-    var card = el("article", "travel-card reveal");
-    var h = el("h3");
-    h.appendChild(el("span", null, block.icon)).setAttribute("aria-hidden", "true");
-    h.appendChild(document.createTextNode(block.title));
-    card.appendChild(h);
-    var ul = el("ul");
-    block.points.forEach(function (p) { ul.appendChild(el("li", null, p)); });
-    card.appendChild(ul);
-    travelGrid.appendChild(card);
-  });
+  // 5. "Good to know" box
+  var info = document.getElementById("good-to-know-card");
+  var g = WEDDING.goodToKnow;
+  var h = el("h3");
+  h.appendChild(el("span", null, g.icon)).setAttribute("aria-hidden", "true");
+  h.appendChild(document.createTextNode(g.title));
+  info.appendChild(h);
+  var ul = el("ul");
+  g.points.forEach(function (p) { ul.appendChild(el("li", null, p)); });
+  info.appendChild(ul);
 
-  // 7. FAQ
-  var faq = document.getElementById("faq-list");
-  WEDDING.faq.forEach(function (item) {
-    var d = el("details", "faq-item reveal");
-    d.appendChild(el("summary", null, item.q));
-    d.appendChild(el("p", null, fillTokens(item.a)));
-    faq.appendChild(d);
-  });
-
-  // 8. Phone numbers in the footer and error message
+  // 6. Phone numbers in the footer and error message
   phoneLinks(document.getElementById("footer-phones"));
   phoneLinks(document.getElementById("error-phones"));
 
-  // 9. Scroll reveal. Skipped entirely for reduced-motion users.
+  // 7. Scroll reveal. Skipped entirely for reduced-motion users.
   var reveals = document.querySelectorAll(".reveal");
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduce || !("IntersectionObserver" in window)) {

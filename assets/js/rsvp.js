@@ -8,43 +8,46 @@
 
   // ---- Travel options (arrival and departure share these) ----
   var TRAVEL = {
-    modes: ["Flight", "Train", "Bus", "Own car", "Not sure yet"],
-    terminals: ["DEL T1", "DEL T2", "DEL T3"],
+    modes: ["Flight", "Train", "Bus", "Own car"],
     stations: ["New Delhi", "Old Delhi", "Hazrat Nizamuddin", "Anand Vihar", "Other"],
     isbts: ["Kashmere Gate", "Anand Vihar", "Sarai Kale Khan", "Other"],
   };
+  // Arriving or leaving by these means we arrange a pickup / drop.
+  var NEEDS_TRANSFER = { Flight: true, Train: true, Bus: true };
+
   var TRAVEL_TEXT = {
     arrival: {
       title: "Arrival in Delhi",
       mode: "How are you getting to Delhi?",
-      terminal: "Which terminal do you land at?",
       station: "Which station do you arrive at?",
       isbt: "Which bus terminal (ISBT) do you arrive at?",
-      time: "Arrival date and time",
-      notSure: "No problem. Send us your tickets on WhatsApp once they're booked. If you'll need a room on the night of 11 December, tell us further down.",
+      when: "Arrival date and time",
+      word: "arrival",
+      dates: WEDDING.rsvp.arrivalDates,
     },
     departure: {
       title: "Departure from Delhi",
       mode: "How are you leaving Delhi?",
-      terminal: "Which terminal do you fly out of?",
       station: "Which station do you leave from?",
       isbt: "Which bus terminal (ISBT) do you leave from?",
-      time: "Departure date and time",
-      notSure: "No problem. Let us know once you've decided.",
+      when: "Departure date and time",
+      word: "departure",
+      dates: WEDDING.rsvp.departureDates,
     },
   };
 
-  // ---- Labels used in the success summary and the WhatsApp fallback ----
+  // ---- What the guest sees in "See what you sent" and the WhatsApp fallback ----
   var LABELS = [
     ["fullName", "Name"], ["phone", "Phone"], ["attending", "Attending"],
-    ["guestCount", "Guests"], ["guestNames", "Guest names"], ["functions", "Functions"],
+    ["guestCount", "Guests"], ["guestNames", "Guest names"],
     ["arrivalMode", "Arrival"], ["arrivalPoint", "Arriving at"], ["arrivalNumber", "Arrival flight/train no."], ["arrivalTime", "Arrival time"],
     ["departureMode", "Departure"], ["departurePoint", "Leaving from"], ["departureNumber", "Departure flight/train no."], ["departureTime", "Departure time"],
-    ["pickupDrop", "Pickup / drop"], ["accommodation", "Room needed"], ["stayNights", "Nights"], ["nightsCount", "Number of nights"], ["rooms", "Rooms"],
-    ["food", "Food"], ["dietary", "Allergies / restrictions"], ["message", "Message"],
+    ["message", "Message"],
   ];
 
   var MAX_GUESTS = WEDDING.rsvp.maxGuests || 15;
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var form = document.getElementById("rsvp-form");
   if (!form) return;
   var submitBtn = document.getElementById("submit-btn");
@@ -64,19 +67,47 @@
   function show(node, visible) { if (node) node.hidden = !visible; }
   function val(name) { var f = form.elements[name]; return f && f.value ? String(f.value).trim() : ""; }
   function radio(name) { var c = $('input[name="' + name + '"]:checked', form); return c ? c.value : ""; }
-  function checked(name) { return $all('input[name="' + name + '"]:checked', form).map(function (i) { return i.value; }); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
 
-  /** A group of pill-style radios or checkboxes. */
-  function choiceGroup(type, name, options, columns) {
-    var wrap = el("div", "choices" + (columns ? " choices-2" : ""));
+  /** "2026-12-10" -> Date at midnight UTC (avoids time-zone surprises). */
+  function parseDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+    return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+  }
+  function isoDate(d) { return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()); }
+  /** "2026-12-10" -> "Thu 10 Dec" */
+  function shortDate(iso) {
+    var d = parseDate(iso);
+    return d ? DAYS[d.getUTCDay()] + " " + d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] : iso;
+  }
+  /** "2026-12-10T14:30" -> "Thu 10 Dec 2026, 2:30 pm" */
+  function formatDateTime(v) {
+    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(v || "");
+    if (!m) return v || "";
+    var h = +m[2];
+    var ampm = h >= 12 ? "pm" : "am";
+    return shortDate(m[1]) + " " + m[1].slice(0, 4) + ", " + (h % 12 || 12) + ":" + m[3] + " " + ampm;
+  }
+
+  /** A group of pill-style radios. */
+  function choiceGroup(name, options, extraClass) {
+    var wrap = el("div", "choices choices-2" + (extraClass ? " " + extraClass : ""));
     options.forEach(function (opt) {
+      var value = typeof opt === "string" ? opt : opt.value;
       var label = el("label", "choice");
       var input = el("input");
-      input.type = type;
+      input.type = "radio";
       input.name = name;
-      input.value = opt;
+      input.value = value;
       label.appendChild(input);
-      label.appendChild(el("span", null, opt));
+      var face = el("span", null, typeof opt === "string" ? opt : (opt.label || null));
+      if (opt.parts) { // calendar tile: "Wed" / "9" / "Dec"
+        face.appendChild(el("small", null, opt.parts[0]));
+        face.appendChild(el("strong", null, opt.parts[1]));
+        face.appendChild(el("small", null, opt.parts[2]));
+      }
+      if (opt.className) label.classList.add(opt.className);
+      label.appendChild(face);
       wrap.appendChild(label);
     });
     return wrap;
@@ -101,66 +132,95 @@
     if (placeholder) i.placeholder = placeholder;
     return i;
   }
+  function select(name, placeholder, options, ariaLabel) {
+    var s = el("select", "select");
+    s.id = name; s.name = name;
+    s.setAttribute("aria-label", ariaLabel);
+    var first = el("option", null, placeholder);
+    first.value = "";
+    s.appendChild(first);
+    options.forEach(function (o) {
+      var opt = el("option", null, o);
+      opt.value = o;
+      s.appendChild(opt);
+    });
+    return s;
+  }
 
   // ------------------------------------------------------------------
-  // Build the dynamic parts of the form
+  // Date and time picker: quick date pills + hour / minute / AM-PM
   // ------------------------------------------------------------------
-  // Functions (one checkbox per event; ticked already if there's only one)
-  var fnBox = document.getElementById("function-choices");
-  WEDDING.events.forEach(function (ev) {
-    var g = choiceGroup("checkbox", "functions", [ev.name]);
-    fnBox.appendChild(g.firstChild);
-  });
-  if (WEDDING.events.length === 1) $('input[name="functions"]', form).checked = true;
+  function buildWhen(kind) {
+    var t = TRAVEL_TEXT[kind];
+    var wrap = el("div", "when");
 
-  // Stay nights
-  var nightBox = document.getElementById("night-choices");
-  WEDDING.rsvp.stayNights.forEach(function (n) {
-    var g = choiceGroup("checkbox", "stayNights", [n.label]);
-    nightBox.appendChild(g.firstChild);
-  });
+    wrap.appendChild(el("p", "mini-label", "Date"));
+    var dateOptions = t.dates.map(function (iso) {
+      return { value: iso, parts: shortDate(iso).split(" ") }; // ["Wed", "9", "Dec"]
+    });
+    dateOptions.push({ value: "other", parts: ["Another", "Other", "date"], className: "is-other" });
+    wrap.appendChild(choiceGroup(kind + "Date", dateOptions, "date-chips"));
 
+    var other = el("div", "other-date");
+    other.setAttribute("data-other-date", kind);
+    var otherLabel = el("label", "mini-label", "Which date?");
+    otherLabel.htmlFor = kind + "OtherDate";
+    var otherInput = el("input");
+    otherInput.type = "date"; otherInput.id = kind + "OtherDate"; otherInput.name = kind + "OtherDate";
+    otherInput.min = "2026-11-01"; otherInput.max = "2027-01-31";
+    other.appendChild(otherLabel);
+    other.appendChild(otherInput);
+    wrap.appendChild(other);
+
+    wrap.appendChild(el("p", "mini-label", "Time"));
+    var picker = el("div", "time-picker");
+    var hours = [];
+    for (var h = 1; h <= 12; h++) hours.push(String(h));
+    var minutes = [];
+    for (var m = 0; m < 60; m += 5) minutes.push(pad(m));
+    picker.appendChild(select(kind + "Hour", "Hour", hours, t.word + " hour"));
+    picker.appendChild(select(kind + "Minute", "Min", minutes, t.word + " minutes"));
+    var ampm = choiceGroup(kind + "AmPm", ["AM", "PM"], "ampm");
+    picker.appendChild(ampm);
+    wrap.appendChild(picker);
+    return wrap;
+  }
+
+  // ------------------------------------------------------------------
   // Arrival and departure blocks
+  // ------------------------------------------------------------------
   function buildTravel(kind) {
     var t = TRAVEL_TEXT[kind];
     var block = el("fieldset", "travel-block");
     block.appendChild(el("legend", null, t.title));
 
-    block.appendChild(field(kind + "Mode", t.mode, choiceGroup("radio", kind + "Mode", TRAVEL.modes, true), true));
+    block.appendChild(field(kind + "Mode", t.mode, choiceGroup(kind + "Mode", TRAVEL.modes), true));
 
     var flight = el("div", "sub");
     flight.setAttribute("data-sub", kind + "-Flight");
-    flight.appendChild(field(kind + "Terminal", t.terminal, choiceGroup("radio", kind + "Terminal", TRAVEL.terminals, true), true));
-    flight.appendChild(field(kind + "FlightNo", "Flight number (if you know it)", textInput(kind + "FlightNo", "e.g. 6E 2134", 12)));
+    flight.appendChild(field(kind + "FlightNo", "Flight number (optional)", textInput(kind + "FlightNo", "e.g. 6E 2134", 12)));
     block.appendChild(flight);
 
     var train = el("div", "sub");
     train.setAttribute("data-sub", kind + "-Train");
-    train.appendChild(field(kind + "Station", t.station, choiceGroup("radio", kind + "Station", TRAVEL.stations, true), true));
+    train.appendChild(field(kind + "Station", t.station, choiceGroup(kind + "Station", TRAVEL.stations, "choices-long"), true));
     var stationOther = field(kind + "StationOther", "Which station?", textInput(kind + "StationOther", "Station name", 60));
     stationOther.setAttribute("data-other", kind + "Station");
     train.appendChild(stationOther);
-    train.appendChild(field(kind + "TrainNo", "Train number (if you know it)", textInput(kind + "TrainNo", "e.g. 12951", 12)));
+    train.appendChild(field(kind + "TrainNo", "Train number (optional)", textInput(kind + "TrainNo", "e.g. 12951", 12)));
     block.appendChild(train);
 
     var bus = el("div", "sub");
     bus.setAttribute("data-sub", kind + "-Bus");
-    bus.appendChild(field(kind + "Isbt", t.isbt, choiceGroup("radio", kind + "Isbt", TRAVEL.isbts, true), true));
+    bus.appendChild(field(kind + "Isbt", t.isbt, choiceGroup(kind + "Isbt", TRAVEL.isbts, "choices-long"), true));
     var isbtOther = field(kind + "IsbtOther", "Which bus stop?", textInput(kind + "IsbtOther", "Bus stop or area", 60));
     isbtOther.setAttribute("data-other", kind + "Isbt");
     bus.appendChild(isbtOther);
     block.appendChild(bus);
 
-    var time = el("input");
-    time.type = "datetime-local"; time.id = kind + "Time"; time.name = kind + "Time";
-    time.min = "2026-11-01T00:00"; time.max = "2027-01-31T23:59";
-    var timeField = field(kind + "Time", t.time + " (if you know it)", time);
-    timeField.setAttribute("data-when", kind);
-    block.appendChild(timeField);
-
-    var note = el("p", "note", t.notSure);
-    note.setAttribute("data-unsure", kind);
-    block.appendChild(note);
+    var when = field(kind + "When", t.when, buildWhen(kind), true);
+    when.setAttribute("data-when", kind);
+    block.appendChild(when);
     return block;
   }
   document.getElementById("travel-arrival").appendChild(buildTravel("arrival"));
@@ -170,7 +230,7 @@
   $all(".field[data-field]", form).forEach(function (box) {
     var err = $(".error", box);
     if (!err) return;
-    $all("input, textarea", box).forEach(function (i) { i.setAttribute("aria-describedby", err.id); });
+    $all("input, textarea, select", box).forEach(function (i) { i.setAttribute("aria-describedby", err.id); });
   });
 
   // ------------------------------------------------------------------
@@ -192,8 +252,8 @@
     guestList.appendChild(self);
     for (var i = 1; i < count; i++) {
       var li = el("li");
-      var input = textInput("guest" + (i + 1), "Guest " + (i + 1) + " full name", 120);
-      input.setAttribute("aria-label", "Guest " + (i + 1) + " full name");
+      var input = textInput("guest" + (i + 1), "Guest " + (i + 1) + " name", 120);
+      input.setAttribute("aria-label", "Guest " + (i + 1) + " name");
       input.setAttribute("aria-describedby", "guestNames-error");
       input.className = "guest-name";
       input.value = typed[i - 1] || "";
@@ -229,34 +289,13 @@
       $all('[data-sub^="' + kind + '-"]', form).forEach(function (sub) {
         show(sub, sub.getAttribute("data-sub") === kind + "-" + mode);
       });
-      show($('[data-when="' + kind + '"]', form), mode !== "" && mode !== "Not sure yet");
-      show($('[data-unsure="' + kind + '"]', form), mode === "Not sure yet");
+      show($('[data-when="' + kind + '"]', form), mode !== "");
+      show($('[data-other-date="' + kind + '"]', form), radio(kind + "Date") === "other");
     });
     $all("[data-other]", form).forEach(function (box) {
       show(box, radio(box.getAttribute("data-other")) === "Other");
     });
-
-    show(document.getElementById("stay-details"), radio("accommodation") === "Yes");
-    show(document.getElementById("food-other"), radio("food") === "Other");
-    updateNightsCount();
   }
-
-  function updateNightsCount() {
-    var n = checked("stayNights").length;
-    document.getElementById("nights-count").textContent =
-      n ? "That's " + n + " night" + (n > 1 ? "s" : "") + "." : "";
-  }
-
-  // When a guest first says they need a room, tick the default night(s)
-  $all('input[name="accommodation"]', form).forEach(function (r) {
-    r.addEventListener("change", function () {
-      if (r.value === "Yes" && checked("stayNights").length === 0) {
-        WEDDING.rsvp.stayNights.forEach(function (n) {
-          if (n.default) $('input[name="stayNights"][value="' + n.label + '"]', form).checked = true;
-        });
-      }
-    });
-  });
 
   form.addEventListener("change", function (e) {
     updateVisibility();
@@ -280,28 +319,37 @@
     var err = document.getElementById(name + "-error");
     if (box) box.classList.add("has-error");
     if (err) err.textContent = message;
-    if (box) $all("input, textarea", box).forEach(function (i) { i.setAttribute("aria-invalid", "true"); });
+    if (box) $all("input, textarea, select", box).forEach(function (i) { i.setAttribute("aria-invalid", "true"); });
   }
   function clearError(name) {
     var box = $('[data-field="' + name + '"]', form);
     var err = document.getElementById(name + "-error");
     if (box) {
       box.classList.remove("has-error");
-      $all("input, textarea", box).forEach(function (i) { i.removeAttribute("aria-invalid"); });
+      $all("input, textarea, select", box).forEach(function (i) { i.removeAttribute("aria-invalid"); });
     }
     if (err) err.textContent = "";
-    var alert = document.getElementById("form-alert");
-    if (!$(".has-error", form)) alert.hidden = true;
+    if (!$(".has-error", form)) document.getElementById("form-alert").hidden = true;
   }
   function clearAllErrors() {
     $all(".has-error", form).forEach(function (b) { clearError(b.getAttribute("data-field")); });
   }
 
+  /** {date: "2026-12-10", iso: "2026-12-10T14:30"} or null if incomplete. */
+  function whenValue(kind) {
+    var d = radio(kind + "Date");
+    if (d === "other") d = val(kind + "OtherDate");
+    var hr = val(kind + "Hour"), mi = val(kind + "Minute"), ap = radio(kind + "AmPm");
+    if (!d || !hr || !mi || !ap) return null;
+    var h = (+hr % 12) + (ap === "PM" ? 12 : 0);
+    return { date: d, iso: d + "T" + pad(h) + ":" + mi };
+  }
+
   function validTravel(kind, errors) {
+    var t = TRAVEL_TEXT[kind];
     var mode = radio(kind + "Mode");
-    var word = kind === "arrival" ? "arriving" : "leaving";
-    if (!mode) { errors.push([kind + "Mode", "Please choose how you're " + word + " (or \"Not sure yet\")."]); return; }
-    if (mode === "Flight" && !radio(kind + "Terminal")) errors.push([kind + "Terminal", "Please choose a terminal."]);
+    var word = kind === "arrival" ? "getting to" : "leaving";
+    if (!mode) { errors.push([kind + "Mode", "Please choose how you're " + word + " Delhi."]); return; }
     if (mode === "Train") {
       var st = radio(kind + "Station");
       if (!st) errors.push([kind + "Station", "Please choose a station."]);
@@ -312,12 +360,17 @@
       if (!b) errors.push([kind + "Isbt", "Please choose a bus terminal."]);
       else if (b === "Other" && !val(kind + "IsbtOther")) errors.push([kind + "IsbtOther", "Please tell us where your bus stops."]);
     }
+    var d = radio(kind + "Date");
+    var hasDate = d && (d !== "other" || val(kind + "OtherDate"));
+    var hasTime = val(kind + "Hour") && val(kind + "Minute") && radio(kind + "AmPm");
+    if (!hasDate && !hasTime) errors.push([kind + "When", "Please choose your " + t.word + " date and time."]);
+    else if (!hasDate) errors.push([kind + "When", "Please choose your " + t.word + " date."]);
+    else if (!hasTime) errors.push([kind + "When", "Please choose your " + t.word + " time: hour, minutes and AM or PM."]);
   }
 
   function validate() {
     var errors = [];
-    var name = val("fullName");
-    if (name.length < 2) errors.push(["fullName", "Please tell us your name."]);
+    if (val("fullName").length < 2) errors.push(["fullName", "Please tell us your name."]);
 
     var phone = val("phone");
     var digits = phone.replace(/\D/g, "");
@@ -334,27 +387,10 @@
       else if ($all(".guest-name", guestList).some(function (i) { return !i.value.trim(); }))
         errors.push(["guestNames", "Please add a name for each guest."]);
 
-      if (checked("functions").length === 0) errors.push(["functions", "Please pick at least one function."]);
-
       validTravel("arrival", errors);
       validTravel("departure", errors);
-      var a = radio("arrivalMode") !== "Not sure yet" ? val("arrivalTime") : "";
-      var d = radio("departureMode") !== "Not sure yet" ? val("departureTime") : "";
-      if (a && d && d <= a) errors.push(["departureTime", "Departure should be after your arrival."]);
-
-      if (!radio("pickupDrop")) errors.push(["pickupDrop", "Please choose one option."]);
-
-      var acc = radio("accommodation");
-      if (!acc) errors.push(["accommodation", "Please let us know if you need a room."]);
-      if (acc === "Yes") {
-        if (checked("stayNights").length === 0) errors.push(["stayNights", "Please tick at least one night."]);
-        var rooms = val("rooms");
-        if (rooms && (!/^\d+$/.test(rooms) || +rooms < 1 || +rooms > 10)) errors.push(["rooms", "Please enter a number from 1 to 10, or leave it blank."]);
-      }
-
-      var food = radio("food");
-      if (!food) errors.push(["food", "Please choose a food preference."]);
-      else if (food === "Other" && !val("foodOther")) errors.push(["foodOther", "Please tell us your food preference."]);
+      var a = whenValue("arrival"), d = whenValue("departure");
+      if (a && d && d.iso <= a.iso) errors.push(["departureWhen", "Departure should be after your arrival."]);
     }
     return errors;
   }
@@ -367,39 +403,41 @@
       : "Please check the " + errors.length + " highlighted answers below.";
     alert.hidden = false;
     var first = $('[data-field="' + errors[0][0] + '"]', form);
-    var focusable = first && $("input:not([type=hidden]), textarea", first);
+    var focusable = first && $("input:not([type=hidden]), textarea, select", first);
     if (errors[0][0] === "guestNames") focusable = $all(".guest-name", guestList).filter(function (i) { return !i.value.trim(); })[0];
     if (first) first.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     if (focusable) setTimeout(function () { focusable.focus({ preventScroll: true }); }, 300);
   }
 
   // ------------------------------------------------------------------
-  // Build the data sent to the sheet (only answers that apply)
+  // Build the data sent to the sheet
   // ------------------------------------------------------------------
-  function formatDateTime(v) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v || "");
-    if (!m) return v || "";
-    var days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    var date = new Date(+m[1], +m[2] - 1, +m[3]);
-    var h = +m[4];
-    var ampm = h >= 12 ? "pm" : "am";
-    h = h % 12 || 12;
-    return days[date.getDay()] + " " + (+m[3]) + " " + months[+m[2] - 1] + " " + m[1] + ", " + h + ":" + m[5] + " " + ampm;
-  }
   function withOther(choice, otherText) { return choice === "Other" ? "Other: " + otherText : choice; }
 
   function travelData(kind, data) {
     var mode = radio(kind + "Mode");
-    var point = "", number = "", time = "";
-    if (mode === "Flight") { point = radio(kind + "Terminal"); number = val(kind + "FlightNo"); }
+    var point = "", number = "";
+    if (mode === "Flight") { number = val(kind + "FlightNo"); }
     if (mode === "Train") { point = withOther(radio(kind + "Station"), val(kind + "StationOther")); number = val(kind + "TrainNo"); }
     if (mode === "Bus") { point = withOther(radio(kind + "Isbt"), val(kind + "IsbtOther")); }
-    if (mode && mode !== "Not sure yet") time = formatDateTime(val(kind + "Time"));
+    var when = whenValue(kind);
     data[kind + "Mode"] = mode;
     data[kind + "Point"] = point;
     data[kind + "Number"] = number;
-    data[kind + "Time"] = time;
+    data[kind + "Time"] = when ? formatDateTime(when.iso) : "";
+    return when;
+  }
+
+  /** Nights from the arrival date up to the night before departure, always including the wedding night. */
+  function stayNights(arrival, departure) {
+    var nights = {};
+    nights[WEDDING.rsvp.weddingNight] = true;
+    var d = arrival && parseDate(arrival.date), end = departure && parseDate(departure.date);
+    for (var i = 0; d && end && d < end && i < 31; i++) {
+      nights[isoDate(d)] = true;
+      d = new Date(d.getTime() + 86400000);
+    }
+    return Object.keys(nights).sort().map(shortDate);
   }
 
   function collect() {
@@ -417,19 +455,18 @@
     var names = [data.fullName].concat($all(".guest-name", guestList).map(function (i) { return i.value.trim(); }));
     data.guestCount = clampGuests(guestCount.value);
     data.guestNames = names.join(", ");
-    data.functions = checked("functions").join(", ");
-    travelData("arrival", data);
-    travelData("departure", data);
-    data.pickupDrop = radio("pickupDrop");
-    data.accommodation = radio("accommodation");
-    if (data.accommodation === "Yes") {
-      var nights = checked("stayNights");
-      data.stayNights = nights.join(", ");
-      data.nightsCount = nights.length;
-      data.rooms = val("rooms") ? parseInt(val("rooms"), 10) : "";
-    }
-    data.food = withOther(radio("food"), val("foodOther"));
-    data.dietary = val("dietary");
+    data.functions = WEDDING.events.map(function (e) { return e.name; }).join(", ");
+    var arrival = travelData("arrival", data);
+    var departure = travelData("departure", data);
+
+    // Not asked on the form, recorded for planning:
+    var pickup = NEEDS_TRANSFER[data.arrivalMode], drop = NEEDS_TRANSFER[data.departureMode];
+    data.pickupDrop = pickup && drop ? "Pickup and drop" : pickup ? "Pickup" : drop ? "Drop" : "No (own car)";
+    data.accommodation = "Yes";
+    var nights = stayNights(arrival, departure);
+    data.stayNights = nights.join(", ");
+    data.nightsCount = nights.length;
+
     data.message = val("message");
     return data;
   }

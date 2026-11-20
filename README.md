@@ -8,25 +8,23 @@ Google Apps Script web app.
 
 ```
 index.html              page structure + link-preview <meta> tags
-assets/js/config.js     ALL editable text: names, dates, events, venue, FAQ, contacts, RSVP URL
+assets/js/config.js     ALL editable text: names, dates, event, venue, "Good to know", contact, RSVP URL
 assets/js/main.js       fills the page from config.js, scroll animations
 assets/js/rsvp.js       RSVP form logic (conditional questions, validation, sending)
 assets/css/style.css    look and feel; colours and fonts at the top (:root)
 assets/img/             invitation artwork, share image, favicons
-assets/photos/          your photos (see assets/photos/README.md)
 apps-script/            the Google Apps Script backend (Code.js, appsscript.json)
-tools/optimize_photos.py  shrinks photos before you upload them
 ```
 
 ## Edit the content
 
 1. Open `assets/js/config.js` and change the text. Placeholders look like
    `[RSVP DEADLINE]`.
-2. To add Mehendi, Sangeet etc., copy an entry in `events`. Each event shows
-   in the schedule and as a checkbox in the form.
+2. The quick-pick dates in the arrival and departure questions are
+   `rsvp.arrivalDates` and `rsvp.departureDates`. Guests can always choose
+   "Another date".
 3. Colours and fonts: the `:root` block at the top of `assets/css/style.css`.
-4. Photos: see `assets/photos/README.md`.
-5. The WhatsApp link preview comes from the `<meta>` tags at the top of
+4. The WhatsApp link preview comes from the `<meta>` tags at the top of
    `index.html`, not from `config.js`. Edit them there. WhatsApp caches
    previews, so changes can take a while to show for links already shared.
 
@@ -84,8 +82,14 @@ again. Until then, the web app returns an error.
   **Comma-separated values (.csv)** (the CSV covers the current tab only).
 - **Only people coming:** select the header row, **Data > Create a filter**,
   then filter the *Attending* column to `Yes`.
-- **Caterer or hotel lists:** use the filter on *Food preference* or
-  *Nights of stay*, or copy the matching rows into a new tab.
+- **Hotel and transport lists:** filter on *Nights of stay*, *Arrival date & time*
+  or *Departure date & time*, or copy the matching rows into a new tab.
+- Columns the form no longer asks about, filled in automatically:
+  - *Functions attending* is always the wedding.
+  - *Pickup / drop needed* is worked out from the travel mode. Flight, train or bus means pickup or drop; own car means none.
+  - *Room needed* is always Yes.
+  - *Nights of stay* covers each night from the arrival date to the night before departure, and always includes 11 Dec.
+  - *Rooms needed*, *Food preference* and *Allergies* stay empty.
 - If someone submits twice, keep the latest row and delete the older one.
   The Summary tab counts every row.
 
