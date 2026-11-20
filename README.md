@@ -18,8 +18,7 @@ apps-script/            the Google Apps Script backend (Code.js, appsscript.json
 
 ## Edit the content
 
-1. Open `assets/js/config.js` and change the text. Placeholders look like
-   `[RSVP DEADLINE]`.
+1. Open `assets/js/config.js` and change the text.
 2. The quick-pick dates in the arrival and departure questions are
    `rsvp.arrivalDates` and `rsvp.departureDates`. Guests can always choose
    "Another date".

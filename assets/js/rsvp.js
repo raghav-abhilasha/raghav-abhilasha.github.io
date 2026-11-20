@@ -7,11 +7,7 @@
   "use strict";
 
   // ---- Travel options (arrival and departure share these) ----
-  var TRAVEL = {
-    modes: ["Flight", "Train", "Bus", "Own car"],
-    stations: ["New Delhi", "Old Delhi", "Hazrat Nizamuddin", "Anand Vihar", "Other"],
-    isbts: ["Kashmere Gate", "Anand Vihar", "Sarai Kale Khan", "Other"],
-  };
+  var TRAVEL = { modes: ["Flight", "Train", "Bus", "Own car"] };
   // Arriving or leaving by these means we arrange a pickup / drop.
   var NEEDS_TRANSFER = { Flight: true, Train: true, Bus: true };
 
@@ -19,8 +15,6 @@
     arrival: {
       title: "Arrival in Delhi",
       mode: "How are you getting to Delhi?",
-      station: "Which station do you arrive at?",
-      isbt: "Which bus terminal (ISBT) do you arrive at?",
       when: "Arrival date and time",
       word: "arrival",
       dates: WEDDING.rsvp.arrivalDates,
@@ -28,8 +22,6 @@
     departure: {
       title: "Departure from Delhi",
       mode: "How are you leaving Delhi?",
-      station: "Which station do you leave from?",
-      isbt: "Which bus terminal (ISBT) do you leave from?",
       when: "Departure date and time",
       word: "departure",
       dates: WEDDING.rsvp.departureDates,
@@ -80,13 +72,15 @@
     var d = parseDate(iso);
     return d ? DAYS[d.getUTCDay()] + " " + d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] : iso;
   }
-  /** "2026-12-10T14:30" -> "Thu 10 Dec 2026, 2:30 pm" */
+  /** "2026-12-10T19:00" -> "Thu 10 Dec 2026, 19:00" */
   function formatDateTime(v) {
-    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(v || "");
-    if (!m) return v || "";
-    var h = +m[2];
-    var ampm = h >= 12 ? "pm" : "am";
-    return shortDate(m[1]) + " " + m[1].slice(0, 4) + ", " + (h % 12 || 12) + ":" + m[3] + " " + ampm;
+    var m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/.exec(v || "");
+    return m ? shortDate(m[1]) + " " + m[1].slice(0, 4) + ", " + m[2] : v || "";
+  }
+  /** "19", "05" -> "7:05 pm" */
+  function twelveHour(h, m) {
+    h = +h;
+    return (h % 12 || 12) + ":" + m + " " + (h >= 12 ? "pm" : "am");
   }
 
   /** A group of pill-style radios. */
@@ -132,23 +126,92 @@
     if (placeholder) i.placeholder = placeholder;
     return i;
   }
-  function select(name, placeholder, options, ariaLabel) {
-    var s = el("select", "select");
-    s.id = name; s.name = name;
-    s.setAttribute("aria-label", ariaLabel);
-    var first = el("option", null, placeholder);
-    first.value = "";
-    s.appendChild(first);
-    options.forEach(function (o) {
-      var opt = el("option", null, o);
-      opt.value = o;
-      s.appendChild(opt);
+  // ------------------------------------------------------------------
+  // Scroll wheel (like the iPhone time picker). The first row, "--",
+  // means "not set yet". The chosen value goes into a hidden input.
+  // ------------------------------------------------------------------
+  var ITEM_H = 40; // keep in sync with .wheel-item height in style.css
+  var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var wheels = [];
+
+  function buildWheel(name, max, ariaLabel, onChange) {
+    var values = [""];
+    for (var i = 0; i <= max; i++) values.push(pad(i));
+
+    var wheel = el("div", "wheel");
+    wheel.tabIndex = 0;
+    wheel.setAttribute("role", "spinbutton");
+    wheel.setAttribute("aria-label", ariaLabel);
+    wheel.setAttribute("aria-valuemin", "0");
+    wheel.setAttribute("aria-valuemax", String(max));
+    wheel.setAttribute("aria-valuetext", "not set");
+    wheel.appendChild(el("div", "wheel-pad"));
+    values.forEach(function (v) {
+      var item = el("div", "wheel-item", v || "--");
+      item.setAttribute("aria-hidden", "true");
+      wheel.appendChild(item);
     });
-    return s;
+    wheel.appendChild(el("div", "wheel-pad"));
+    var items = $all(".wheel-item", wheel);
+
+    var hidden = el("input");
+    hidden.type = "hidden"; hidden.name = name; hidden.id = name;
+
+    var current = 0, settleTimer = null, frame = null;
+
+    // Tilt and fade rows away from the centre for the 3D drum look.
+    function paint() {
+      frame = null;
+      var pos = wheel.scrollTop / ITEM_H;
+      var lo = Math.max(0, Math.floor(pos) - 4), hi = Math.min(items.length - 1, Math.ceil(pos) + 4);
+      for (var i = lo; i <= hi; i++) {
+        var d = i - pos;
+        items[i].style.transform = "rotateX(" + (-d * 22) + "deg)";
+        items[i].style.opacity = String(Math.max(0.2, 1 - Math.abs(d) * 0.3));
+      }
+    }
+    function setIndex(idx, scroll) {
+      idx = Math.max(0, Math.min(values.length - 1, idx));
+      var changed = idx !== current;
+      current = idx;
+      var v = values[idx];
+      hidden.value = v;
+      items.forEach(function (it, i) { it.classList.toggle("is-selected", i === idx); });
+      if (v === "") wheel.removeAttribute("aria-valuenow");
+      else wheel.setAttribute("aria-valuenow", String(+v));
+      wheel.setAttribute("aria-valuetext", v === "" ? "not set" : v);
+      if (scroll) wheel.scrollTo({ top: idx * ITEM_H, behavior: REDUCED ? "auto" : "smooth" });
+      if (changed) {
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+        if (onChange) onChange();
+      }
+    }
+
+    wheel.addEventListener("scroll", function () {
+      if (!frame) frame = requestAnimationFrame(paint);
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(function () { setIndex(Math.round(wheel.scrollTop / ITEM_H), false); }, 120);
+    }, { passive: true });
+    wheel.addEventListener("click", function (e) {
+      var item = e.target.closest(".wheel-item");
+      if (item) setIndex(items.indexOf(item), true);
+    });
+    wheel.addEventListener("keydown", function (e) {
+      var step = { ArrowDown: 1, ArrowUp: -1, PageDown: 5, PageUp: -5 }[e.key];
+      if (e.key === "Home") step = 1 - current;
+      if (e.key === "End") step = values.length - 1 - current;
+      if (step === undefined) return;
+      e.preventDefault();
+      setIndex(current + step, true);
+    });
+
+    items[0].classList.add("is-selected");
+    wheels.push({ wheel: wheel, paint: paint });
+    return { wheel: wheel, hidden: hidden };
   }
 
   // ------------------------------------------------------------------
-  // Date and time picker: quick date pills + hour / minute / AM-PM
+  // Date and time picker: date tiles + hour and minute wheels (24-hour)
   // ------------------------------------------------------------------
   function buildWhen(kind) {
     var t = TRAVEL_TEXT[kind];
@@ -172,17 +235,31 @@
     other.appendChild(otherInput);
     wrap.appendChild(other);
 
-    wrap.appendChild(el("p", "mini-label", "Time"));
-    var picker = el("div", "time-picker");
-    var hours = [];
-    for (var h = 1; h <= 12; h++) hours.push(String(h));
-    var minutes = [];
-    for (var m = 0; m < 60; m += 5) minutes.push(pad(m));
-    picker.appendChild(select(kind + "Hour", "Hour", hours, t.word + " hour"));
-    picker.appendChild(select(kind + "Minute", "Min", minutes, t.word + " minutes"));
-    var ampm = choiceGroup(kind + "AmPm", ["AM", "PM"], "ampm");
-    picker.appendChild(ampm);
+    wrap.appendChild(el("p", "mini-label", "Time (24-hour)"));
+    var readout = el("p", "time-readout", "Scroll to set the hour and minutes");
+    readout.setAttribute("aria-live", "polite");
+    function updateReadout() {
+      var h = val(kind + "Hour"), m = val(kind + "Minute");
+      readout.textContent = h && m ? h + ":" + m + " · " + twelveHour(h, m)
+        : "Scroll to set the " + (h ? "minutes" : m ? "hour" : "hour and minutes");
+    }
+    var hour = buildWheel(kind + "Hour", 23, t.word + " hour, 00 to 23", updateReadout);
+    var minute = buildWheel(kind + "Minute", 59, t.word + " minutes, 00 to 59", updateReadout);
+
+    var heads = el("div", "wheel-heads");
+    heads.setAttribute("aria-hidden", "true");
+    heads.appendChild(el("span", null, "Hours"));
+    heads.appendChild(el("span", null, "Minutes"));
+    wrap.appendChild(heads);
+
+    var picker = el("div", "wheel-picker");
+    picker.appendChild(hour.wheel);
+    picker.appendChild(el("span", "wheel-colon", ":"));
+    picker.appendChild(minute.wheel);
     wrap.appendChild(picker);
+    wrap.appendChild(hour.hidden);
+    wrap.appendChild(minute.hidden);
+    wrap.appendChild(readout);
     return wrap;
   }
 
@@ -203,19 +280,12 @@
 
     var train = el("div", "sub");
     train.setAttribute("data-sub", kind + "-Train");
-    train.appendChild(field(kind + "Station", t.station, choiceGroup(kind + "Station", TRAVEL.stations, "choices-long"), true));
-    var stationOther = field(kind + "StationOther", "Which station?", textInput(kind + "StationOther", "Station name", 60));
-    stationOther.setAttribute("data-other", kind + "Station");
-    train.appendChild(stationOther);
     train.appendChild(field(kind + "TrainNo", "Train number (optional)", textInput(kind + "TrainNo", "e.g. 12951", 12)));
     block.appendChild(train);
 
     var bus = el("div", "sub");
     bus.setAttribute("data-sub", kind + "-Bus");
-    bus.appendChild(field(kind + "Isbt", t.isbt, choiceGroup(kind + "Isbt", TRAVEL.isbts, "choices-long"), true));
-    var isbtOther = field(kind + "IsbtOther", "Which bus stop?", textInput(kind + "IsbtOther", "Bus stop or area", 60));
-    isbtOther.setAttribute("data-other", kind + "Isbt");
-    bus.appendChild(isbtOther);
+    bus.appendChild(field(kind + "BusTerminal", "Bus terminal name (optional)", textInput(kind + "BusTerminal", "e.g. Kashmere Gate ISBT", 60)));
     block.appendChild(bus);
 
     var when = field(kind + "When", t.when, buildWhen(kind), true);
@@ -230,7 +300,7 @@
   $all(".field[data-field]", form).forEach(function (box) {
     var err = $(".error", box);
     if (!err) return;
-    $all("input, textarea, select", box).forEach(function (i) { i.setAttribute("aria-describedby", err.id); });
+    $all("input, textarea, select, .wheel", box).forEach(function (i) { i.setAttribute("aria-describedby", err.id); });
   });
 
   // ------------------------------------------------------------------
@@ -292,9 +362,8 @@
       show($('[data-when="' + kind + '"]', form), mode !== "");
       show($('[data-other-date="' + kind + '"]', form), radio(kind + "Date") === "other");
     });
-    $all("[data-other]", form).forEach(function (box) {
-      show(box, radio(box.getAttribute("data-other")) === "Other");
-    });
+    // Wheels can only draw their tilt once they are on screen.
+    wheels.forEach(function (w) { if (w.wheel.offsetParent) w.paint(); });
   }
 
   form.addEventListener("change", function (e) {
@@ -319,14 +388,14 @@
     var err = document.getElementById(name + "-error");
     if (box) box.classList.add("has-error");
     if (err) err.textContent = message;
-    if (box) $all("input, textarea, select", box).forEach(function (i) { i.setAttribute("aria-invalid", "true"); });
+    if (box) $all("input, textarea, select, .wheel", box).forEach(function (i) { i.setAttribute("aria-invalid", "true"); });
   }
   function clearError(name) {
     var box = $('[data-field="' + name + '"]', form);
     var err = document.getElementById(name + "-error");
     if (box) {
       box.classList.remove("has-error");
-      $all("input, textarea, select", box).forEach(function (i) { i.removeAttribute("aria-invalid"); });
+      $all("input, textarea, select, .wheel", box).forEach(function (i) { i.removeAttribute("aria-invalid"); });
     }
     if (err) err.textContent = "";
     if (!$(".has-error", form)) document.getElementById("form-alert").hidden = true;
@@ -335,14 +404,13 @@
     $all(".has-error", form).forEach(function (b) { clearError(b.getAttribute("data-field")); });
   }
 
-  /** {date: "2026-12-10", iso: "2026-12-10T14:30"} or null if incomplete. */
+  /** {date: "2026-12-10", iso: "2026-12-10T19:00"} or null if incomplete. */
   function whenValue(kind) {
     var d = radio(kind + "Date");
     if (d === "other") d = val(kind + "OtherDate");
-    var hr = val(kind + "Hour"), mi = val(kind + "Minute"), ap = radio(kind + "AmPm");
-    if (!d || !hr || !mi || !ap) return null;
-    var h = (+hr % 12) + (ap === "PM" ? 12 : 0);
-    return { date: d, iso: d + "T" + pad(h) + ":" + mi };
+    var hr = val(kind + "Hour"), mi = val(kind + "Minute");
+    if (!d || !hr || !mi) return null;
+    return { date: d, iso: d + "T" + hr + ":" + mi };
   }
 
   function validTravel(kind, errors) {
@@ -350,22 +418,12 @@
     var mode = radio(kind + "Mode");
     var word = kind === "arrival" ? "getting to" : "leaving";
     if (!mode) { errors.push([kind + "Mode", "Please choose how you're " + word + " Delhi."]); return; }
-    if (mode === "Train") {
-      var st = radio(kind + "Station");
-      if (!st) errors.push([kind + "Station", "Please choose a station."]);
-      else if (st === "Other" && !val(kind + "StationOther")) errors.push([kind + "StationOther", "Please tell us the station name."]);
-    }
-    if (mode === "Bus") {
-      var b = radio(kind + "Isbt");
-      if (!b) errors.push([kind + "Isbt", "Please choose a bus terminal."]);
-      else if (b === "Other" && !val(kind + "IsbtOther")) errors.push([kind + "IsbtOther", "Please tell us where your bus stops."]);
-    }
     var d = radio(kind + "Date");
     var hasDate = d && (d !== "other" || val(kind + "OtherDate"));
-    var hasTime = val(kind + "Hour") && val(kind + "Minute") && radio(kind + "AmPm");
+    var hasTime = val(kind + "Hour") && val(kind + "Minute");
     if (!hasDate && !hasTime) errors.push([kind + "When", "Please choose your " + t.word + " date and time."]);
     else if (!hasDate) errors.push([kind + "When", "Please choose your " + t.word + " date."]);
-    else if (!hasTime) errors.push([kind + "When", "Please choose your " + t.word + " time: hour, minutes and AM or PM."]);
+    else if (!hasTime) errors.push([kind + "When", "Please set your " + t.word + " time: scroll the hours and the minutes."]);
   }
 
   function validate() {
@@ -412,14 +470,12 @@
   // ------------------------------------------------------------------
   // Build the data sent to the sheet
   // ------------------------------------------------------------------
-  function withOther(choice, otherText) { return choice === "Other" ? "Other: " + otherText : choice; }
-
   function travelData(kind, data) {
     var mode = radio(kind + "Mode");
     var point = "", number = "";
-    if (mode === "Flight") { number = val(kind + "FlightNo"); }
-    if (mode === "Train") { point = withOther(radio(kind + "Station"), val(kind + "StationOther")); number = val(kind + "TrainNo"); }
-    if (mode === "Bus") { point = withOther(radio(kind + "Isbt"), val(kind + "IsbtOther")); }
+    if (mode === "Flight") number = val(kind + "FlightNo");
+    if (mode === "Train") number = val(kind + "TrainNo");
+    if (mode === "Bus") point = val(kind + "BusTerminal");
     var when = whenValue(kind);
     data[kind + "Mode"] = mode;
     data[kind + "Point"] = point;

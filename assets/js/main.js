@@ -51,7 +51,6 @@
     when.appendChild(el("span", null, ev.date));
     when.appendChild(el("span", "event-time", ev.time));
     card.appendChild(when);
-    card.appendChild(el("p", "event-where", ev.venue + ", " + ev.address));
     if (ev.note) card.appendChild(el("p", "event-note", ev.note));
     eventList.appendChild(card);
   });

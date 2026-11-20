@@ -2,7 +2,6 @@
    WEDDING SITE CONFIG: edit this file to change what the site says.
    ---------------------------------------------------------------------
    - Plain text only. Keep the quotes and commas as they are.
-   - Anything in [SQUARE BRACKETS] is a placeholder still to be filled.
    - Don't use commas inside event names: the Google Sheet joins
      multiple values with ", ".
    - The WhatsApp/Facebook link preview is NOT read from here. Edit the
@@ -41,9 +40,7 @@ const WEDDING = {
       name: "Wedding",
       date: "Friday, 11 December 2026",
       time: "6:30 pm onwards",
-      venue: "Mosaic Sandoz",
-      address: "A2, Wazirpur Industrial Area, Delhi 110052",
-      note: "",
+      note: "", // optional extra line on the card
     },
   ],
 
@@ -65,7 +62,6 @@ const WEDDING = {
   },
 
   rsvp: {
-    deadline: "[RSVP DEADLINE]", // shown above the form as "Please reply by ..."
     missYou: "We'll miss you! Sorry you can't make it. Thank you for letting us know.",
     maxGuests: 15,
     // Quick-pick dates in the arrival / departure questions (YYYY-MM-DD).
