@@ -57,6 +57,9 @@ const WEDDING = {
     icon: "🧣",
     points: [
       "December evenings in Delhi are cold, often below 10 °C. Bring a warm layer.",
+      "Delhi's air is often smoggy in December. If you're sensitive to pollution, carry a mask.",
+      "Hotels in India ask every adult guest for photo ID at check-in, so keep yours handy.",
+      "Save 91680 81609 (Raghav) on your phone for any help on the day. Other number: 70440 95783 (Mr. Ayush, Raghav's Jiyaji).",
     ],
   },
 
