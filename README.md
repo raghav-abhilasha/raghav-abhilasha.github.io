@@ -47,13 +47,13 @@ GitHub Pages updates the live site within a minute or two.
 
 ## The Google Sheet and backend
 
-- Sheet: https://docs.google.com/spreadsheets/d/1gKdW3OKwqDnPITQfV2rSFv68_FbSI-wwunEvelbCqyk/edit
+- Sheet: https://docs.google.com/spreadsheets/d/1egoU59cVENMGjdcBA-BbKvX03xlCxZBmev8lctHrHx4/edit
   - First tab: the labels are in column A, and each RSVP is one column (B, C, D …), with the newest on the right. Read each entry top to bottom. Don't reorder or insert rows.
   - **Summary** tab: totals, headcount, and counts per function, night of stay and food preference. It's all formulas, so it updates by itself.
 - Script: open the sheet, then **Extensions > Apps Script**, or
-  https://script.google.com/d/1KMl0z6Sm9RDa8caR8dx8PxzRKvrpC_CfUEDZaqLwItxSikcbwwSkBEzU/edit
+  https://script.google.com/d/10C6BwJQNihJ6ur6S_ObgnZAB-rAOR6IYw1AlmqNO51e79lB1PS-vuVtD/edit
 - Web app URL (already in `config.js` as `RSVP_ENDPOINT`):
-  https://script.google.com/macros/s/AKfycbykznCgPCWNwBd8xhvhr5hz3EVRMPkIGV5XkYUlh40tZaWEtNBkl7Xk_4n20puRG9zwqQ/exec
+  https://script.google.com/macros/s/AKfycbzFa22sOfsyDICcE5tirq719s926I9HfzopFI2NNHQKiCmZqrAyt9hlkXjJFCPog1T7/exec
   Opening it in a browser should show `"RSVP endpoint is live"`.
 - Every new RSVP emails the script owner. To send them to another address,
   add a Script Property `NOTIFY_EMAIL` in the script's **Project Settings**.
@@ -65,7 +65,7 @@ Edit `apps-script/Code.js`, then from the `apps-script` folder:
 
 ```
 clasp push
-clasp deploy -i AKfycbykznCgPCWNwBd8xhvhr5hz3EVRMPkIGV5XkYUlh40tZaWEtNBkl7Xk_4n20puRG9zwqQ -d "what changed"
+clasp deploy -i AKfycbzFa22sOfsyDICcE5tirq719s926I9HfzopFI2NNHQKiCmZqrAyt9hlkXjJFCPog1T7 -d "what changed"
 ```
 
 Using `-i` with the same deployment ID keeps the same `/exec` URL, so the

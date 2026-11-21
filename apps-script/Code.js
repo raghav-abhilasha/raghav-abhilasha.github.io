@@ -1,7 +1,7 @@
 /**
  * Wedding RSVP backend.
  *
- * This script is bound to the "responses from RSVP" Google Sheet.
+ * This script is bound to the "Raghav & Abhilasha Wedding RSVPs" Google Sheet.
  * Layout of the responses (first) tab: column A holds the labels, and
  * each RSVP is one column, B, C, D ..., so entries read left to right.
  *

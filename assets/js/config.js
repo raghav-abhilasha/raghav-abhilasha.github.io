@@ -10,7 +10,7 @@
 
 /* 1. BACKEND: the Google Apps Script web app that saves RSVPs.
       This is the only place the URL appears. It is public by design. */
-const RSVP_ENDPOINT = "https://script.google.com/macros/s/AKfycbykznCgPCWNwBd8xhvhr5hz3EVRMPkIGV5XkYUlh40tZaWEtNBkl7Xk_4n20puRG9zwqQ/exec";
+const RSVP_ENDPOINT = "https://script.google.com/macros/s/AKfycbzFa22sOfsyDICcE5tirq719s926I9HfzopFI2NNHQKiCmZqrAyt9hlkXjJFCPog1T7/exec";
 
 /* 2. CONTENT */
 const WEDDING = {
